@@ -1,0 +1,645 @@
+import pandas as pd
+import statsmodels.api as sm
+import pylab as pl
+import numpy as np
+import os
+from pandas import DataFrame
+from matplotlib import pyplot as plt
+from scipy import stats
+import seaborn as sns
+
+#read data
+df = pd.read_csv('/Users/chenyifan/Library/CloudStorage/OneDrive-UniversityofBirmingham/academic/dissertation/Data/data2aftercovid.csv',thousands=',')
+#display max
+pd.set_option("display.max_columns", None)
+pd.set_option("display.max_rows", None)
+
+print(df.isnull().sum())
+print(df.dtypes)
+print(df['default'].value_counts())
+
+
+'''''''''data preparation'''''''
+
+
+''''replace string with NAN'''
+
+df=df.replace('n.a.',np.nan)
+df=df.replace('n.s.',np.nan)
+
+'''convert object to float'''
+
+
+df['gearing']=df['gearing'].str.replace(',','').astype(float)
+df['CR']=df['CR'].str.replace(',','').astype(float)
+df['ROCE']=df['ROCE'].str.replace(',','').astype(float)
+df['int_cov']=df['int_cov'].str.replace(',','').astype(float)
+
+#冒号含左不含右
+'''variables=df.iloc[:,3:5]
+
+def convert(df, cols):
+    for col in cols:
+        df[col]=df[col].str.replace(',','').astype(float)
+    
+convert(df,variables)
+
+# check types
+print(df.dtypes)'''
+
+
+
+
+'''process data sigh position'''
+
+negative=['CL','CL2021','CL2020','CL2019','CL2018','CL2017',
+          'LT_lia','LT_lia2021','LT_lia2020','LT_lia2019','LT_lia2018','LT_lia2017','LT_lia2016',
+          'CoS','CoS2021','CoS2020','CoS2019','CoS2018','CoS2017','CoS2016',
+          'int','int2021','int2020','int2019','int2018','int2017','int2016']
+
+def sign (df, cols):
+    for col in cols:
+        df[col]=-1*df[col]
+
+sign(df,negative)
+
+
+''' generate financial ratio'''
+df['debt_ratio'] = (df['CL']+df['LT_lia'])/df['TA']
+df['quick_ratio'] = df['cash']/df['CL']
+df['ROE'] = df['NI']/df['equity']
+df['ROS'] = df['EBIT']/df['Turnover']
+df['Asset Turnover'] = df['Turnover']/df['TA']
+df['Turnover of AR']=df['Turnover']/df['AR']
+
+
+'''drop unnecessary cols'''
+
+df.drop(['name','Latest accounts date','Company status','Status date'], axis=1, inplace=True)
+
+'''summary'''
+
+print(df.describe())
+print(df['default'].value_counts())
+
+
+'''replace inf with NAN'''
+df=df.replace(np.Inf,np.NaN)
+df=df.replace(-np.Inf,np.NaN)
+print(df.isnull().sum())
+
+
+
+'''STEP 1: delete missing data'''
+df_cap = df.copy()
+#delete rows which have NaN,true的意思是在原dataframe上修改，这里用false
+'''once delete, the training dataset will be too small to get the significant result'''
+#ROE null=461;ROS null=240
+df_cap.dropna(axis = 0, subset = ['ROE','ROS'],inplace=True)
+print(df_cap.dtypes)
+
+
+#'''STEP 2 : replace missing data with mean''' give up this method cuz this may interact with SHAP value
+'''
+df_cap['gearing']= df_cap['gearing'].fillna(value=df_cap['gearing'].mean())
+df_cap['int_cov']= df_cap['int_cov'].fillna(value=df_cap['int_cov'].mean())
+df_cap['debt_ratio']= df_cap['debt_ratio'].fillna(value=df_cap['debt_ratio'].mean())
+df_cap['Asset Turnover']= df_cap['Asset Turnover'].fillna(value=df_cap['Asset Turnover'].mean())
+df_cap['Turnover of AR']= df_cap['Turnover of AR'].fillna(value=df_cap['Turnover of AR'].mean())
+df_cap['ROCE']= df_cap['ROCE'].fillna(value=df_cap['ROCE'].mean())
+df_cap['quick_ratio']= df_cap['quick_ratio'].fillna(value=df_cap['quick_ratio'].mean())
+df_cap['CR']= df_cap['CR'].fillna(value=df_cap['CR'].mean())
+df_cap['CoS']= df_cap['CoS'].fillna(value=df_cap['CoS'].mean())
+'''
+
+'''STEP 2 : replace missing data with ffill/bfill向前向后填充'''
+
+df_cap['gearing']= df_cap['gearing'].fillna(method='ffill')
+df_cap['int_cov']= df_cap['int_cov'].fillna(method='ffill')
+df_cap['debt_ratio']= df_cap['debt_ratio'].fillna(method='ffill')
+df_cap['Asset Turnover']= df_cap['Asset Turnover'].fillna(method='ffill')
+df_cap['Turnover of AR']= df_cap['Turnover of AR'].fillna(method='ffill')
+df_cap['ROCE']= df_cap['ROCE'].fillna(method='ffill')
+df_cap['quick_ratio']= df_cap['quick_ratio'].fillna(method='ffill')
+df_cap['CR']= df_cap['CR'].fillna(method='ffill')
+df_cap['CoS']= df_cap['CoS'].fillna(method='ffill')
+
+
+
+
+
+#以下暂时不用
+
+
+'''df_cap['NI']= df_cap['NI'].fillna(value=df_cap['NI'].mean())
+df_cap['sales']= df_cap['sales'].fillna(value=df_cap['sales'].mean())
+df_cap['EBIT margin (%)']= df_cap['EBIT margin (%)'].fillna(value=df_cap['EBIT margin (%)'].mean())
+df_cap['EBITDA']= df_cap['EBITDA'].fillna(value=df_cap['EBITDA'].mean())
+df_cap['Interest']= df_cap['Interest'].fillna(value=df_cap['Interest'].mean())
+df_cap['AR']= df_cap['AR'].fillna(value=df_cap['AR'].mean())
+df_cap['EBIT']= df_cap['EBIT'].fillna(value=df_cap['EBIT'].mean())
+df_cap['Profit (Loss) after Tax']= df_cap['Profit (Loss) after Tax'].fillna(value=df_cap['Profit (Loss) after Tax'].mean())
+df_cap['Equity']= df_cap['Equity'].fillna(value=df_cap['Equity'].mean())
+df_cap['Fixed Assets']= df_cap['Fixed Assets'].fillna(value=df_cap['Fixed Assets'].mean())
+df_cap['Equity']= df_cap['Equity'].fillna(value=df_cap['Equity'].mean())
+'''
+
+
+#number of NaN
+df_cap.isnull().sum()
+df_cap.describe()
+print(df_cap['default'].value_counts())
+
+
+''''winsorize outliers ---capping method'''
+
+#check outliers
+plt.scatter(df["debt_ratio"],df['quick_ratio'])
+plt.show()
+#capping/winsorize
+
+
+features = ['int_cov','Turnover of AR','gearing','CR','ROCE','quick_ratio','debt_ratio',
+   'ROE','ROS','Asset Turnover']
+
+features
+    
+def percentile_capping(df, cols, from_low_end, from_high_end):
+    for col in cols:
+        
+        lower_bound = df[col].quantile(from_low_end)         
+        upper_bound = df[col].quantile(1-from_high_end)
+        df[col] = np.where(df[col]>upper_bound, upper_bound,
+                 np.where(df[col]<lower_bound, lower_bound, df[col]))
+
+        #stats.mstats.winsorize(a=df[col], limits=(from_low_end, from_high_end), inplace=True)
+        #I don't know why this method doesn't work
+        
+percentile_capping(df_cap, features, 0.025, 0.025)
+
+''''summary '''''
+print(df_cap.describe())
+
+'''check accuracy'''
+
+df['gearing'].quantile(0.95)
+df['debt_ratio'].quantile(0.95)
+df['quick_ratio'].quantile(0.95)
+df['ROE'].quantile(0.95)
+df['ROS'].quantile(0.95)
+df['Asset Turnover'].quantile(0.95)
+
+
+
+'''' logit regression'''
+
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import confusion_matrix,classification_report,roc_curve,roc_auc_score,auc
+
+'STEP1:  visualize the data'
+plt.scatter(df_cap['debt_ratio'], df_cap['default'], c=df_cap['default'], cmap='rainbow')
+plt.title('Scatter Plot of Logistic Regression')
+plt.show()
+
+''''STEP2: undersampling'''
+
+x = df_cap.loc[:,['gearing','CR','debt_ratio','quick_ratio','ROS','ROE','ROCE','int_cov','Asset Turnover','Turnover of AR']]
+x = sm.add_constant(x)
+y = df_cap.loc[:,"default"]
+
+from imblearn.under_sampling import RandomUnderSampler
+rus=RandomUnderSampler(sampling_strategy=0.25)
+x_res,y_res=rus.fit_resample(x,y)
+ax=y_res.value_counts().plot.pie(autopct='%.2f')
+print(y_res.value_counts())
+y.describe()
+x_res.describe()
+y_res.describe()
+
+df_reg = x_res.copy()
+df_reg.insert(0,'default',y_res)
+
+'STEP3:  Split the Dataset'
+
+x_train, x_test, y_train, y_test = train_test_split(x_res,y_res,test_size=.2)
+
+
+'STEP4:  Perform Logistic Regression'
+
+'all variables'
+Logit_df=sm.Logit(y_res,x_res)
+result=Logit_df.fit()
+print(result.summary())
+print(df_cap.describe())
+
+#calculate AIC
+print(result.aic)
+
+
+'stepwise selection'
+def stepwise_select(data,label,cols_all,method='forward'):
+    '''
+    args:
+        data：数据源，df
+        label：标签，str
+        cols_all：逐步回归的全部字段
+        methrod：方法，forward:向前，backward:向后，both:双向
+    return:
+        select_col：最终保留的字段列表，list 
+        summary：模型参数
+        AIC：aic
+    '''
+    import statsmodels.api as sm
+    
+    ######################## 1.前向回归
+    # 前向回归：从一个变量都没有开始，一个变量一个变量的加入到模型中，直至没有可以再加入的变量结束
+    if method == 'forward':  
+        add_col = [] 
+        AIC_None_value = np.inf
+        while cols_all:
+            # 单个变量加入，计算aic
+            AIC = {}
+            for col in cols_all:
+                print(col)
+                X_col = add_col.copy()
+                X_col.append(col)
+                X = sm.add_constant(data[X_col])
+                y = data[label]
+                LR = sm.Logit(y, X).fit()
+                AIC[col] = LR.aic
+            AIC_min_value = min(AIC.values())   
+            AIC_min_key = min(AIC,key=AIC.get)
+            # 如果最小的aic小于不加该变量时的aic，则加入变量，否则停止
+            if AIC_min_value < AIC_None_value:
+                cols_all.remove(AIC_min_key)
+                add_col.append(AIC_min_key)
+                AIC_None_value = AIC_min_value
+            else:
+                break
+        select_col = add_col
+    ######################## 2.后向回归
+    # 从全部变量都在模型中开始，一个变量一个变量的删除，直至没有可以再删除的变量结束
+    elif method == 'backward': 
+        p = True  
+        # 全部变量，一个都不剔除，计算初始aic
+        X_col = cols_all.copy()
+        X = sm.add_constant(data[X_col])
+        y = data[label]
+        LR = sm.Logit(y, X).fit()
+        AIC_None_value = LR.aic        
+        while p:      
+           # 删除一个字段提取aic最小的字段
+           AIC = {}
+           for col in cols_all:
+               print(col)
+               X_col = [i for i in cols_all if i!=col]
+               X = sm.add_constant(data[X_col])
+               LR = sm.Logit(y, X).fit()
+               AIC[col] = LR.aic
+           AIC_min_value = min(AIC.values()) 
+           AIC_min_key = min(AIC, key=AIC.get)  
+           # 如果最小的aic小于不删除该变量时的aic，则删除该变量，否则停止
+           if AIC_min_value < AIC_None_value:
+               cols_all.remove(AIC_min_key)
+               AIC_None_value = AIC_min_value
+               p = True
+           else:
+               break 
+        select_col = cols_all             
+    ######################## 3.双向回归
+    elif method == 'both': 
+        p = True
+        add_col = []
+        # 全部变量，一个都不剔除，计算初始aic
+        X_col = cols_all.copy()
+        X = sm.add_constant(data[X_col])
+        y = data[label]
+        LR = sm.Logit(y, X).fit()
+        AIC_None_value = LR.aic        
+        while p: 
+            # 删除一个字段提取aic最小的字段
+            AIC={}
+            for col in cols_all:
+                print(col)
+                X_col = [i for i in cols_all if i!=col]
+                X = sm.add_constant(data[X_col])
+                LR = sm.Logit(y, X).fit()
+                AIC[col] = LR.aic     
+            AIC_min_value = min(AIC.values())
+            AIC_min_key = min(AIC, key=AIC.get)
+            if len(add_col) == 0: # 第一次只有删除操作，不循环加入变量
+                if AIC_min_value < AIC_None_value:
+                    cols_all.remove(AIC_min_key)
+                    add_col.append(AIC_min_key)
+                    AIC_None_value = AIC_min_value
+                    p = True
+                else:
+                    break
+            else:
+                # 单个变量加入，计算aic
+                for col in add_col:
+                    print(col)
+                    X_col = cols_all.copy()
+                    X_col.append(col)
+                    X = sm.add_constant(data[X_col])
+                    LR = sm.Logit(y, X).fit()
+                    AIC[col] = LR.aic
+                AIC_min_value = min(AIC.values())
+                AIC_min_key = min(AIC, key=AIC.get)
+                if AIC_min_value < AIC_None_value:
+                    # 如果aic最小的字段在添加变量阶段产生，则加入该变量，如果aic最小的字段在删除阶段产生,则删除该变量
+                    if AIC_min_key in add_col:
+                        cols_all.append(AIC_min_key)
+                        add_col = list(set(add_col)-set(AIC_min_key))
+                        p = True                    
+                    else: 
+                        cols_all.remove(AIC_min_key)
+                        add_col.append(AIC_min_key)
+                        p = True
+                    AIC_None_value = AIC_min_value
+                else:
+                    break
+        select_col = cols_all 
+    ######################## 模型
+    X = sm.add_constant(data[select_col])
+    LR = sm.Logit(y, X).fit()    
+    summary = LR.summary()
+    AIC = LR.aic
+    return select_col,summary,AIC
+
+
+stepwise_select(df_reg,'default',features,method='backward')
+
+
+
+'STEP5: Perform prediction using the test dataset'
+#this function cann't output reg result /clf=classifier分类器
+import time
+
+#time.perf_counter()
+#返回计时器的精准时间（系统的运行时间），包含整个系统的睡眠时间
+
+start = time.perf_counter()
+
+'''
+代码段
+'''
+
+'all variabls'
+log_reg_all =LogisticRegression()
+clf_all=log_reg_all.fit(x_train, y_train)
+# prediction 
+y_pred_all =clf_all.predict(x_test)
+
+
+end = time.perf_counter()
+print("time consuming : %.2fs"%(end - start))
+
+
+# Show the Confusion Matrix
+print(confusion_matrix(y_test, y_pred_all))
+print(classification_report(y_test, y_pred_all))
+
+'stepwise selection variables'
+
+start = time.perf_counter()
+
+
+log_reg_stepwise=LogisticRegression()
+
+x_train_stepwise = x_train.copy()
+x_train_stepwise.drop(columns=['int_cov','Turnover of AR'],inplace=True)
+x_test_stepwise=x_test.copy()
+x_test_stepwise.drop(columns=['int_cov','Turnover of AR'],inplace=True)
+
+clf_stepwise=log_reg_stepwise.fit(x_train_stepwise, y_train)
+# prediction 
+y_pred_stepwise=clf_stepwise.predict(x_test_stepwise)
+
+end = time.perf_counter()
+print("time consuming : %.2fs"%(end - start))
+
+# Show the Confusion Matrix
+print(confusion_matrix(y_test, y_pred_stepwise))
+print(classification_report(y_test, y_pred_stepwise))
+
+
+'''STEP5: AUC score and ROC curve'''
+
+'all variables'
+#Prediction probabilities for 0 and 1
+log_reg_probs = log_reg_all.predict_proba(x_test)
+#save prediction prob for 1 
+log_reg_probs = log_reg_probs[:, 1]
+#calculate auc score
+log_reg_auc = roc_auc_score(y_test, log_reg_probs)
+print('Logistic Regression(all variables): AUROC = %.3f' % (log_reg_auc))
+sns.distplot(log_reg_probs)
+
+#plot ROC curve
+log_reg_fpr,log_reg_tpr,thresholds = roc_curve(y_test,log_reg_probs)
+plt.plot(log_reg_fpr, log_reg_tpr, marker='.', label='Logistic Regression-all variables(AUROC = %0.3f)' % log_reg_auc)
+# Title
+plt.title('ROC Plot')
+# Axis labels
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+# Show legend
+plt.legend()
+# Show plot
+plt.show()
+
+'stepwise variables'
+
+#Prediction probabilities for 0 and 1
+log_reg_probs_stepwise = log_reg_stepwise.predict_proba(x_test_stepwise)
+#save prediction prob for 1 
+log_reg_probs_stepwise = log_reg_probs_stepwise[:, 1]
+#calculate auc score
+log_reg_auc_stepwise = roc_auc_score(y_test, log_reg_probs_stepwise)
+print('Logistic Regression: AUROC = %.3f' % (log_reg_auc))
+sns.distplot(log_reg_probs)
+
+#plot ROC curve
+log_reg_fpr_stepwise,log_reg_tpr_stepwise,thresholds_stepwise = roc_curve(y_test,log_reg_probs_stepwise)
+plt.plot(log_reg_fpr_stepwise, log_reg_tpr_stepwise, marker='.', label='Logistic Regression-stepwise (AUROC = %0.3f)' % log_reg_auc_stepwise)
+# Title
+plt.title('ROC Plot')
+# Axis labels
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+# Show legend
+plt.legend()
+# Show plot
+plt.show()
+
+
+
+
+'''' xgboost algorithm'''
+#load up XGBoost and convert data into the DMatrix format it expects
+
+
+
+import xgboost as xgb
+from xgboost import XGBClassifier
+from sklearn import metrics
+
+
+'''train=xgb.DMatrix(x_train,label=y_train)
+test=xgb.DMatrix(x_test,label=y_test)
+
+#define hyperparameters
+param={
+       'max_depth':4,
+       'eta':0.3,
+       'objective':'binary:logistic',
+       'num_class':2}
+epochs=10
+'''
+
+
+start = time.perf_counter()
+
+model = XGBClassifier()
+model= model.fit(x_train,y_train)
+y_pred_xgb=model.predict(x_test)
+
+end = time.perf_counter()
+print("time consuming : %.2fs"%(end - start))
+
+
+
+#check parameter
+print(model)
+
+
+# Show the Confusion Matrix
+print(confusion_matrix(y_test, y_pred_xgb))
+print(classification_report(y_test, y_pred_xgb))
+
+#model = xgb.train(param,train,epochs)
+#y_pre_xgb= model.predict(test)
+
+
+#Prediction probabilities for 0 and 1
+y_pre_xgb_proba = model.predict_proba(x_test)
+#save prediction prob for 1 
+y_pre_xgb_proba = y_pre_xgb_proba[:, 1]
+#calculate auc score
+xgb_auc = roc_auc_score(y_test, y_pre_xgb_proba)
+print('XGBoost: AUROC = %.3f' % (xgb_auc))
+sns.distplot(y_pre_xgb_proba)
+    
+#plot ROC curve
+xgb_fpr,xgb_tpr,thresholds = roc_curve(y_test,y_pre_xgb_proba)
+plt.plot(xgb_fpr, xgb_tpr, color='darkorange',marker='.',label='XGBoost (AUROC = %0.3f)' % xgb_auc)
+plt.plot(log_reg_fpr, log_reg_tpr, marker='.', label='Logistic Regression-all variables (AUROC = %0.3f)' % log_reg_auc)
+plt.plot(log_reg_fpr_stepwise,log_reg_tpr_stepwise,color='green',marker='.', label='Logistic Regression-stepwise (AUROC = %0.3f)' % log_reg_auc_stepwise)
+plt.plot([0,1],[0,1],color='navy',linestyle='--')
+# Title
+plt.title('ROC Plot')
+# Axis labels
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+# Show legend
+plt.legend()
+# Show plot
+plt.show()
+
+
+from numpy import *
+print(mean(y_pred_all))
+print(mean(y_pred_xgb))
+print(mean(y_res))
+
+# explain the model's predictions using SHAP 
+''' explain the model's predictions using SHAP'''
+import shap
+
+
+'''logistic regression'''
+
+
+#global
+explainer0 = shap.LinearExplainer(log_reg_stepwise,x_test_stepwise)
+shap_values0 = explainer0(x_test_stepwise)
+shap.summary_plot(shap_values0,x_test_stepwise, plot_type="bar")
+shap.plots.bar(shap_values0,show_data=True,max_display=11)
+
+# local
+# visualize the default and not default prediction's explanation
+shap.plots.waterfall(shap_values0[0],max_display=11)
+shap.plots.waterfall(shap_values[15],max_display=11)
+
+shap.plots.waterfall(shap_values[4],max_display=11)
+shap.plots.waterfall(shap_values[38],max_display=11)
+
+
+'''xbgoost'''
+
+
+explainer = shap.TreeExplainer(model,x_test)
+shap_values = explainer(x_test)
+
+#local interpretability
+# visualize the default and not default prediction's explanation
+shap.plots.waterfall(shap_values[0],max_display=11)
+shap.plots.waterfall(shap_values[15],max_display=11)
+
+shap.plots.waterfall(shap_values[4],max_display=11)
+shap.plots.waterfall(shap_values[38],max_display=11)
+
+
+#feature importance 
+#active
+shap.plots.bar(shap_values[0],show_data=True,max_display=11)
+shap.plots.bar(shap_values[4],show_data=True,max_display=11)
+#default
+shap.plots.bar(shap_values[1],show_data=True,max_display=11)
+shap.plots.bar(shap_values[2],show_data=True,max_display=11)
+
+shap.force_plot(explainer.expected_value,shap_values[9,:], x_train.iloc[9,:],matplotlib=True)
+
+
+#global interpretability
+#bar for whole model
+shap.summary_plot(shap_values,x_test, plot_type="bar")
+shap.plots.bar(shap_values,show_data=True,max_display=11)
+#bar for whole model
+
+
+# 模型结果解释==================================================================
+xgb.plot_importance(model)
+
+# 特征统计值
+shap.summary_plot(shap_values,x_test)
+
+print
+
+'counterfactual SHAP:what-if-tool'
+from witwidget.notebook.visualization import WitConfigBuilder
+from witwidget.notebook.visualization import WitWidget
+
+config_builder = WitConfigBuilder(test_examples[0:num_datapoints]).set_estimator_and_feature_spec(
+    classifier, feature_spec).set_compare_estimator_and_feature_spec(
+    classifier2, feature_spec).set_label_vocab(['Under 50K', 'Over 50K'])
+a = WitWidget(config_builder, height=tool_height_in_px)
+
+
+#######calulate running time
+import time
+
+start = time.perf_counter()
+
+'''
+code
+'''
+
+end = time.perf_counter()
+print("time consuming : %.2fs"%(end - start))
+
+
+
